@@ -1,0 +1,6 @@
+[submodule "third_party/fmt"]
+	path = third_party/fmt
+	url = git@github.com:fmtlib/fmt.git
+[submodule "third_party/GSL"]
+	path = third_party/GSL
+	url = git@github.com:Microsoft/GSL.git
