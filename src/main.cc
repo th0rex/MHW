@@ -96,6 +96,21 @@ void do_crypt(gsl::span<std::uint8_t> key, F&& f) {
   gcry_cipher_close(handle);
 }
 
+template <typename F>
+void do_checksum(gsl::span<std::uint8_t> data, F&& f) {
+  gcry_md_hd_t handle;
+  if (gcry_md_open(&handle, GCRY_MD_SHA1, 0)) {
+    fatal("[-] encrypt: checksum failed\n");
+  }
+  gcry_md_write(handle, data.data() + 64, data.size() - 64);
+  gsl::span<std::uint8_t> checksum = {gcry_md_read(handle, GCRY_MD_SHA1), 8};
+  bswap(checksum);
+
+  f(checksum);
+
+  gcry_md_close(handle);
+}
+
 void decrypt(gsl::span<std::uint8_t> data, gsl::span<std::uint8_t> key) {
   do_crypt(key, [data](gcry_cipher_hd_t handle) {
     if (gcry_cipher_decrypt(handle, data.data(), data.size(), nullptr, 0)) {
@@ -106,6 +121,10 @@ void decrypt(gsl::span<std::uint8_t> data, gsl::span<std::uint8_t> key) {
 }
 
 void encrypt(gsl::span<std::uint8_t> data, gsl::span<std::uint8_t> key) {
+  do_checksum(data, [data](gsl::span<std::uint8_t> checksum) {
+    std::memcpy(data.data() + 12, checksum.data(), 8);
+  });
+
   bswap(data);
 
   do_crypt(key, [data](gcry_cipher_hd_t handle) {
@@ -119,7 +138,7 @@ void encrypt(gsl::span<std::uint8_t> data, gsl::span<std::uint8_t> key) {
 }
 
 int main(int argc, char** argv) {
-  if (argc < 4) {
+  if (argc != 5) {
     fmt::printf("Usage: %s <decrypt|encrypt> input_file output_file key_file\n",
                 argv[0]);
     return 1;
@@ -127,20 +146,16 @@ int main(int argc, char** argv) {
 
   auto [_, data] = read_file(argv[2]);
 
-  if (!std::strcmp(argv[1], "recover_key")) {
-    const auto [_, result] = recover_key(data);
-    write_file(argv[3], result);
-  } else if (!std::strcmp(argv[1], "decrypt") && argc == 5) {
+  if (!std::strcmp(argv[1], "decrypt")) {
     const auto [_, key] = read_file(argv[4]);
     decrypt(data, key);
-    write_file(argv[3], data);
-  } else if (!std::strcmp(argv[1], "encrypt") && argc == 5) {
+  } else if (!std::strcmp(argv[1], "encrypt")) {
     const auto [_, key] = read_file(argv[4]);
     encrypt(data, key);
-    write_file(argv[3], data);
   } else {
     fatal("[-] unknown command: %s\n", argv[1]);
   }
+  write_file(argv[3], data);
 
   return 0;
 }
