@@ -79,7 +79,8 @@ void bswap(gsl::span<std::uint8_t> data) {
 }
 
 template <typename F>
-void do_crypt(gsl::span<std::uint8_t> key, F&& f) {
+void do_crypt(gsl::span<std::uint8_t> data, gsl::span<std::uint8_t> key,
+              F&& f) {
   debug("[*] do_crypt: key size: %d\n", key.size());
 
   gcry_cipher_hd_t handle;
@@ -91,7 +92,13 @@ void do_crypt(gsl::span<std::uint8_t> key, F&& f) {
     fatal("[-] do_crypt: gcry_cipher_setkey failed\n");
   }
 
-  f(handle);
+  bswap(data);
+
+  if (f(handle, data.data(), data.size(), nullptr, 0)) {
+    fatal("[-] do_crypt: encrypt/decrypt operation failed\n");
+  }
+
+  bswap(data);
 
   gcry_cipher_close(handle);
 }
@@ -112,12 +119,7 @@ void do_checksum(gsl::span<std::uint8_t> data, F&& f) {
 }
 
 void decrypt(gsl::span<std::uint8_t> data, gsl::span<std::uint8_t> key) {
-  do_crypt(key, [data](gcry_cipher_hd_t handle) {
-    if (gcry_cipher_decrypt(handle, data.data(), data.size(), nullptr, 0)) {
-      fatal("[-] decrypt: gcry_cipher_decrypt failed\n");
-    }
-    debug("[+] decrypt: decrypted data\n");
-  });
+  do_crypt(data, key, gcry_cipher_decrypt);
 }
 
 void encrypt(gsl::span<std::uint8_t> data, gsl::span<std::uint8_t> key) {
@@ -125,16 +127,7 @@ void encrypt(gsl::span<std::uint8_t> data, gsl::span<std::uint8_t> key) {
     std::memcpy(data.data() + 12, checksum.data(), 8);
   });
 
-  bswap(data);
-
-  do_crypt(key, [data](gcry_cipher_hd_t handle) {
-    if (gcry_cipher_encrypt(handle, data.data(), data.size(), nullptr, 0)) {
-      fatal("[-] encrypt: gcry_cipher_encrypt failed\n");
-    }
-    debug("[+] encrypt: encrypted data\n");
-  });
-
-  bswap(data);
+  do_crypt(data, key, gcry_cipher_encrypt);
 }
 
 int main(int argc, char** argv) {
